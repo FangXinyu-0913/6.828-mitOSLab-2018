@@ -16,5 +16,5 @@ V = @
 
 # If the makefile cannot find your QEMU binary, uncomment the
 # following line and set it to the full path to QEMU.
-#
+# Testing
 QEMU=/home/mia/Documents/qemu/bin/qemu-system-i386
