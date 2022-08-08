@@ -30,7 +30,7 @@ nvram_read(int r)
 }
 
 static void
-i386_detect_memory(void)
+i386_detect_memory(void)//检测现在系统中有多少可用的内存空间
 {
 	size_t basemem, extmem, ext16mem, totalmem;
 
@@ -50,7 +50,7 @@ i386_detect_memory(void)
 		totalmem = basemem;
 
 	npages = totalmem / (PGSIZE / 1024);
-	npages_basemem = basemem / (PGSIZE / 1024);
+	npages_basemem = basemem / (PGSIZE / 1024);//计算basemem页数
 
 	cprintf("Physical memory: %uK available, base = %uK, extended = %uK\n",
 		totalmem, basemem, totalmem - basemem);
@@ -60,7 +60,7 @@ i386_detect_memory(void)
 // --------------------------------------------------------------
 // Set up memory mappings above UTOP.
 // --------------------------------------------------------------
-
+//test
 static void boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm);
 static void check_page_free_list(bool only_low_memory);
 static void check_page_alloc(void);
@@ -83,6 +83,8 @@ static void check_page_installed_pgdir(void);
 // before the page_free_list list has been set up.
 static void *
 boot_alloc(uint32_t n)
+// 核心思想：维护一个静态变量nextfree，里面存放着下一个可以使用的空闲内存空间的虚拟地址，
+// 所以每次当我们想要分配n个字节的内存时，我们都需要修改这个变量的值。
 {
 	static char *nextfree;	// virtual address of next byte of free memory
 	char *result;
@@ -102,8 +104,10 @@ boot_alloc(uint32_t n)
 	// to a multiple of PGSIZE.
 	//
 	// LAB 2: Your code here.
-
-	return NULL;
+    result = nextfree;
+    nextfree = ROUNDUP(nextfree + n,PGSIZE);//update nextfree
+		
+	return result;
 }
 
 // Set up a two-level page table:
@@ -125,11 +129,12 @@ mem_init(void)
 	i386_detect_memory();
 
 	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
+	// panic("mem_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
-	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);
+	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);//分配一个页的内存，且该页紧跟着操作系统内核之后
+	//初始化指向操作系统的页目录表的指针【需要这个页目录表进行地址转换】
 	memset(kern_pgdir, 0, PGSIZE);
 
 	//////////////////////////////////////////////////////////////////////
@@ -139,7 +144,10 @@ mem_init(void)
 	// following line.)
 
 	// Permissions: kernel R, user R
-	kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;
+	kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;//为页目录表添加第一个页目录表项,将虚拟地址与页表kern_pgdir的物理地址映射起来
+	//add first page dir list item
+	//set up mapping relation between VA and PA
+	//PADDR(kern_pgdir) ---- calculate kern_pgdir truly PA
 
 	//////////////////////////////////////////////////////////////////////
 	// Allocate an array of npages 'struct PageInfo's and store it in 'pages'.
@@ -148,7 +156,11 @@ mem_init(void)
 	// array.  'npages' is the number of physical pages in memory.  Use memset
 	// to initialize all fields of each struct PageInfo to 0.
 	// Your code goes here:
-
+    pages = (struct PageInfo *) boot_alloc(npages * sizeof(struct PageInfo));
+	memset(pages,0,npages * sizeof(struct PageInfo));
+	//track memory page usage 
+	//分配一块内存，用来存放一个struct PageInfo的数组，数组中的每一个PageInfo代表内存当中的一页。
+	//操作系统内核就是通过这个数组来追踪所有内存页的使用情况的
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -172,6 +184,7 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
+	boot_map_region(kern_pgdir, UPAGES, PTSIZE, PADDR(pages), PTE_U);  
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -184,7 +197,7 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
-
+	boot_map_region (kern_pgdir, KSTACKTOP - KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_W);  
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
 	// Ie.  the VA range [KERNBASE, 2^32) should map to
@@ -193,7 +206,7 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
-
+	boot_map_region(kern_pgdir, KERNBASE, 0xffffffff - KERNBASE, 0, PTE_W);
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
 
@@ -232,7 +245,7 @@ mem_init(void)
 // memory via the page_free_list.
 //
 void
-page_init(void)
+page_init(void)//初始化pages数组 与 空闲页链表
 {
 	// The example code here marks all physical pages as free.
 	// However this is not truly the case.  What memory is free?
@@ -252,10 +265,24 @@ page_init(void)
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
 	size_t i;
+	page_free_list = NULL;
+	//num_alloc:在extmem区域已经被占用的页的个数 
+	int num_alloc = ((uint32_t)boot_alloc(0) - KERNBASE) / PGSIZE;
+	//num_iohole:在io hole区域占用的页数
+	int num_iohole = 96;
 	for (i = 0; i < npages; i++) {
-		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
+		if(i==0)
+			pages[i].pp_ref = 1;//page 0 in use 第0页已被占用
+		else if(i >= npages_basemem && i < npages_basemem + num_iohole + num_alloc)//三部分占用
+   		{
+       		pages[i].pp_ref = 1;//some extend mem have been occupied 该页已被占用
+   		}
+   		 else
+   		{
+       		pages[i].pp_ref = 0;
+       		pages[i].pp_link = page_free_list;//将未被占用的页送入链表中
+       		page_free_list = &pages[i];
+   		}
 	}
 }
 
@@ -272,10 +299,21 @@ page_init(void)
 //
 // Hint: use page2kva and memset
 struct PageInfo *
-page_alloc(int alloc_flags)
+page_alloc(int alloc_flags)//分配一个物理页
 {
 	// Fill this function in
-	return 0;
+	struct PageInfo *freePage;
+	if(page_free_list == NULL)
+		return NULL;
+	freePage=page_free_list;//取出空闲页的PageInfo结构体
+	page_free_list = freePage->pp_link;//修改free_page_list相关信息
+	freePage->pp_link=NULL;
+
+	if(alloc_flags & ALLOC_ZERO)
+	   memset(page2kva(freePage),0,PGSIZE);
+	//修改取出空闲页的结构体信息，初始化该页内存
+
+	return freePage;
 }
 
 //
@@ -283,11 +321,16 @@ page_alloc(int alloc_flags)
 // (This function should only be called when pp->pp_ref reaches 0.)
 //
 void
-page_free(struct PageInfo *pp)
+page_free(struct PageInfo *pp)//把一个页的结构体返回给空闲页链表，代表页回收
 {
 	// Fill this function in
 	// Hint: You may want to panic if pp->pp_ref is nonzero or
 	// pp->pp_link is not NULL.
+	assert(pp->pp_ref == 0);
+	assert(pp->pp_link == NULL);
+
+	pp->pp_link = page_free_list;
+	page_free_list = pp;//recycle pp this page
 }
 
 //
@@ -326,8 +369,26 @@ page_decref(struct PageInfo* pp)
 pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
-	// Fill this function in
-	return NULL;
+	assert(pgdir != NULL);
+    pde_t *pg_dir_entry = NULL;
+    pte_t *pg_table = NULL;
+    struct PageInfo *new_page = NULL;
+
+    pg_dir_entry = &pgdir[PDX(va)];//通过页目录表求得虚拟地址所在页表页对应的页目录中的页目录项地址
+    if (!(*pg_dir_entry & PTE_P)) {//判断页目录项对应的页表页是否已经在内存中
+        if (!create)
+            return NULL;
+        else {
+            new_page = page_alloc(ALLOC_ZERO);//不在，且create为true 
+            if (new_page == NULL)
+                return NULL;
+            new_page->pp_ref++;//分配新页，并把页的信息添加到页目录项中
+            *pg_dir_entry = (page2pa(new_page) | PTE_P |PTE_W | PTE_U);
+            }
+    }
+
+    pg_table = KADDR(PTE_ADDR(*pg_dir_entry));//页表页已在内存中,则计算页表页的基地址
+    return &pg_table[PTX(va)];//返回va所对应页表项的地址
 }
 
 //
@@ -345,6 +406,17 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	// Fill this function in
+	uint32_t i;
+    pte_t *pg_table_entry = NULL;
+    uint32_t page_num = size / PGSIZE;
+
+    for (i = 0; i < page_num; i++) {
+        pg_table_entry = pgdir_walk(pgdir, (void *) va, 1);
+        assert(pg_table_entry != NULL);
+        *pg_table_entry = pa | perm | PTE_P;
+        va += PGSIZE;
+        pa += PGSIZE;
+    }
 }
 
 //
@@ -376,7 +448,27 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
-	return 0;
+	pte_t *entry = NULL;
+    entry = pgdir_walk(pgdir, va, 1);//通过pgdir_walk函数求出虚拟地址va所对应的页表项
+
+    if (!entry)//-E_NO_MEM, if page table couldn't be allocated
+        return -E_NO_MEM;
+
+    
+    if((*entry) & PTE_P) {
+        tlb_invalidate(pgdir, va);
+		if(PTE_ADDR(*entry)==page2pa(pp)){
+			pp->pp_ref --;//插入同一页面，则只需修改权限
+		}
+		else{
+        	page_remove(pgdir, va);//查看这个页表项，确定va是否已经被映射，如果被映射，则删除这个映射。
+		}
+    }
+	pp->pp_ref++;//修改pp_ref的值
+    *entry = (page2pa(pp) | perm | PTE_P);//把va和pp之间的映射关系加入到页表项中
+    //pgdir[PDX(va)] |= entry;
+
+    return 0;
 }
 
 //
@@ -394,7 +486,20 @@ struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
 	// Fill this function in
-	return NULL;
+	pte_t *entry = NULL;
+    struct PageInfo *ret = NULL;
+
+    entry = pgdir_walk(pgdir, va, 0);//获取va对应的页表项
+    if (entry == NULL)
+        return NULL;
+    if (!(*entry & PTE_P))
+        return NULL;
+
+    ret = pa2page(PTE_ADDR(*entry));//返回这个页的PageInfo结构体指针
+    if (pte_store != NULL)
+        *pte_store = entry;
+
+    return ret;
 }
 
 //
@@ -416,6 +521,15 @@ void
 page_remove(pde_t *pgdir, void *va)
 {
 	// Fill this function in
+	pte_t *entry = NULL;
+    struct PageInfo *page = page_lookup(pgdir, va, &entry);
+
+    if (page == NULL)
+        return;
+
+    page_decref(page);
+    tlb_invalidate(pgdir, va);
+    *entry = 0;
 }
 
 //
@@ -452,6 +566,7 @@ check_page_free_list(bool only_low_memory)
 	if (only_low_memory) {
 		// Move pages with lower addresses first in the free
 		// list, since entry_pgdir does not map all pages.
+		// but only map lower addresses pages
 		struct PageInfo *pp1, *pp2;
 		struct PageInfo **tp[2] = { &pp1, &pp2 };
 		for (pp = page_free_list; pp; pp = pp->pp_link) {
