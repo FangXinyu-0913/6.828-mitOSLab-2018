@@ -646,7 +646,7 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// panic("mmio_map_region not implemented");
 	uintptr_t start = base;
 	base += ROUNDUP(size, PGSIZE);
-	boot_map_region(kern_pgdir, start, ROUNDUP(size, PGSIZE), pa, PTE_PCD|PTE_PWT|PTE_W);
+	boot_map_region(kern_pgdir, start, ROUNDUP(size, PGSIZE), pa, PTE_PCD|PTE_PWT|PTE_W);//page cache disable、page write through、page可写  
 	if (base > MMIOLIM) {
 		panic("mmio_map_region overflows MMIOLIM");
 	}
