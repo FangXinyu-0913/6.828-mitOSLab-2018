@@ -74,7 +74,7 @@ trap_init(void)
 	// LAB 3: Your code here.
 	void t_divide();
 	void t_debug();
-	// void t_nmi();
+	void t_nmi();
 	void t_brkpt();
 	void t_oflow();
 	void t_bound();
@@ -87,13 +87,31 @@ trap_init(void)
 	void t_gpflt();
 	void t_pgflt();
 	void t_fperr();
-	// void t_align();
-	// void t_mchk();
-	// void t_simderr();
+	void t_align();
+	void t_mchk();
+	void t_simderr();
 	void t_syscall();
+	void irq_timer();
+	void irq_kbd();
+	void irq_serial();
+	void irq_spurious();
+	void irq_ide();
+	void irq_error();
+	// void irq2_handler();
+	// void irq3_handler();
+	// void irq5_handler();
+	// void irq6_handler();
+	// void irq8_handler();
+	// void irq9_handler();
+	// void irq10_handler();
+	// void irq11_handler();
+	// void irq12_handler();
+	// void irq13_handler();
+	// void irq15_handler();
+
 	SETGATE(idt[T_DIVIDE], 0, GD_KT, t_divide, 0);
 	SETGATE(idt[T_DEBUG], 0, GD_KT, t_debug, 0);
-	// SETGATE(idt[T_NMI], 0, GD_KT, t_nmi, 0);
+	SETGATE(idt[T_NMI], 0, GD_KT, t_nmi, 0);
 	SETGATE(idt[T_BRKPT], 0, GD_KT, t_brkpt, 3);//中断向量表DPL需改为3
 	SETGATE(idt[T_OFLOW], 0, GD_KT, t_oflow, 0);
 	SETGATE(idt[T_BOUND], 0, GD_KT, t_bound, 0);
@@ -106,10 +124,28 @@ trap_init(void)
 	SETGATE(idt[T_GPFLT], 0, GD_KT, t_gpflt, 0);
 	SETGATE(idt[T_PGFLT], 0, GD_KT, t_pgflt, 0);
 	SETGATE(idt[T_FPERR], 0, GD_KT, t_fperr, 0);
-	// SETGATE(idt[T_ALIGN], 0, GD_KT, t_align, 0);
-	// SETGATE(idt[T_MCHK], 0, GD_KT, t_mchk, 0);
-	// SETGATE(idt[T_SIMDERR], 0, GD_KT, t_simderr, 0);
+	SETGATE(idt[T_ALIGN], 0, GD_KT, t_align, 0);
+	SETGATE(idt[T_MCHK], 0, GD_KT, t_mchk, 0);
+	SETGATE(idt[T_SIMDERR], 0, GD_KT, t_simderr, 0);
 	SETGATE(idt[T_SYSCALL], 0, GD_KT, t_syscall, 3);
+
+	SETGATE(idt[IRQ_OFFSET + IRQ_TIMER], 0, GD_KT, irq_timer,0);//第二个参数必须设置为0，即将它们都视为中断门，阻止中断嵌套
+	SETGATE(idt[IRQ_OFFSET + IRQ_KBD], 0, GD_KT, irq_kbd, 0);
+	// SETGATE(idt[IRQ_OFFSET + 2], 0, GD_KT, irq2_handler, 0);
+	// SETGATE(idt[IRQ_OFFSET + 3], 0, GD_KT, irq3_handler, 0);
+	SETGATE(idt[IRQ_OFFSET + IRQ_SERIAL], 0, GD_KT, irq_serial, 0);
+	// SETGATE(idt[IRQ_OFFSET + 5], 0, GD_KT, irq5_handler,0);
+	// SETGATE(idt[IRQ_OFFSET + 6], 0, GD_KT, irq6_handler,0);
+	SETGATE(idt[IRQ_OFFSET + IRQ_SPURIOUS], 0, GD_KT, irq_spurious, 0);
+	// SETGATE(idt[IRQ_OFFSET + 8], 0, GD_KT, irq8_handler, 0);
+	// SETGATE(idt[IRQ_OFFSET + 9], 0, GD_KT, irq9_handler, 0);
+	// SETGATE(idt[IRQ_OFFSET + 10], 0, GD_KT, irq10_handler, 0);
+	// SETGATE(idt[IRQ_OFFSET + 11], 0, GD_KT, irq11_handler, 0);
+	// SETGATE(idt[IRQ_OFFSET + 12], 0, GD_KT, irq12_handler, 0);
+	// SETGATE(idt[IRQ_OFFSET + 13], 0, GD_KT, irq13_handler, 0);
+	SETGATE(idt[IRQ_OFFSET + IRQ_IDE], 0, GD_KT, irq_ide, 0);
+	// SETGATE(idt[IRQ_OFFSET + 15], 0, GD_KT, irq15_handler, 0);
+	SETGATE(idt[IRQ_OFFSET + IRQ_ERROR], 0, GD_KT, irq_error,0);
 	// Per-CPU setup 
 	trap_init_percpu();
 }
@@ -241,6 +277,12 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle clock interrupts. Don't forget to acknowledge the
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
+	if (tf->tf_trapno == IRQ_OFFSET+IRQ_TIMER) {
+		// cprintf("fffffffffffffffffffffffffffffffffffffffffffffffffffff\n");
+    	lapic_eoi();
+    	sched_yield();
+    	return;
+	}
 	
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
@@ -323,7 +365,7 @@ page_fault_handler(struct Trapframe *tf)
 	// Handle kernel-mode page faults.
 
 	// LAB 3: Your code here.
-	if ((tf->tf_cs & 0x11) == 0)  
+	if ((tf->tf_cs & 3) != 3)  
 	    panic("kernel page fault at %x.\n", fault_va);  
 
 	// We've already handled kernel-mode exceptions, so if we get here,
