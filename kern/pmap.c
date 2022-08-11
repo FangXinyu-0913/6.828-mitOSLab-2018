@@ -273,6 +273,20 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
+	uintptr_t now_base = KSTACKTOP-KSTKSIZE-KSTKGAP;
+	for (int i=0; i<NCPU; i++)
+	{
+		if (now_base <= MMIOLIM)
+			panic("mem_init_mp:out of range\n");
+
+		boot_map_region(kern_pgdir,
+						now_base+KSTKGAP,
+						KSTKSIZE,
+						PADDR(percpu_kstacks[i]),
+						PTE_W|PTE_P);
+
+		now_base -= (KSTKSIZE+KSTKGAP);
+	}
 
 }
 
@@ -313,29 +327,29 @@ page_init(void)//初始化pages数组 与 空闲页链表
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
 	size_t i;
-	// page_free_list = NULL;
-	// //num_alloc:在extmem区域已经被占用的页的个数 
-	// int num_alloc = ((uint32_t)boot_alloc(0) - KERNBASE) / PGSIZE;
-	// //num_iohole:在io hole区域占用的页数
-	// int num_iohole = 96;
-	// for (i = 0; i < npages; i++) {
-	// 	if(i==0)
-	// 		pages[i].pp_ref = 1;//page 0 in use 第0页已被占用
-	// 	else if(i >= npages_basemem && i < npages_basemem + num_iohole + num_alloc)//三部分占用
-   	// 	{
-    //    		pages[i].pp_ref = 1;//some extend mem have been occupied 该页已被占用
-   	// 	}
-   	// 	 else
-   	// 	{
-    //    		pages[i].pp_ref = 0;
-    //    		pages[i].pp_link = page_free_list;//将未被占用的页送入链表中
-    //    		page_free_list = &pages[i];
-   	// 	}
-	// }
-	for (i = 0; i < npages; i++) {
-		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
+	page_free_list = NULL;
+	//num_alloc:在extmem区域已经被占用的页的个数 
+	int num_alloc = ((uint32_t)boot_alloc(0) - KERNBASE) / PGSIZE;
+	//num_iohole:在io hole区域占用的页数
+	int num_iohole = 96;
+	extern unsigned char mpentry_start[],mpentry_end[];//
+	size_t size = ROUNDUP(mpentry_end - mpentry_start,PGSIZE);//
+	for (i = 0; i < npages; i++) 
+	{
+		if(i==0)
+			pages[i].pp_ref = 1;//page 0 in use 第0页已被占用
+		else if(i>=MPENTRY_PADDR/PGSIZE && i<(MPENTRY_PADDR+size)/PGSIZE)
+			pages[i].pp_ref = 1;//
+		else if(i >= npages_basemem && i < npages_basemem + num_iohole + num_alloc)//三部分占用
+   		{
+       		pages[i].pp_ref = 1;//some extend mem have been occupied 该页已被占用
+   		}
+   		else
+   		{
+       		pages[i].pp_ref = 0;
+       		pages[i].pp_link = page_free_list;//将未被占用的页送入链表中
+       		page_free_list = &pages[i];
+   		}
 	}
 }
 
@@ -629,7 +643,14 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	// panic("mmio_map_region not implemented");
+	uintptr_t start = base;
+	base += ROUNDUP(size, PGSIZE);
+	boot_map_region(kern_pgdir, start, ROUNDUP(size, PGSIZE), pa, PTE_PCD|PTE_PWT|PTE_W);
+	if (base > MMIOLIM) {
+		panic("mmio_map_region overflows MMIOLIM");
+	}
+	return (void*)start;
 }
 
 static uintptr_t user_mem_check_addr;
