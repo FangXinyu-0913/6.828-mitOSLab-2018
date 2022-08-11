@@ -12,6 +12,7 @@ void
 sched_yield(void)
 {
 	struct Env *idle;
+	struct Env *cur_env = curenv;
 
 	// Implement simple round-robin scheduling.
 	//
@@ -27,23 +28,27 @@ sched_yield(void)
 	// another CPU (env_status == ENV_RUNNING). If there are
 	// no runnable environments, simply drop through to the code
 	// below to halt the cpu.
-
 	// LAB 4: Your code here.
-	struct Env *now = thiscpu->cpu_env;
-	int32_t startid = now ? ENVX(now->env_id):0;
-	int32_t nextid;
-	size_t i;
-	//从0查找当前执行环境
-	for(i = 0;i<NENV;i++){
-		nextid = (startid + i)%NENV;
-		if(envs[nextid].env_status == ENV_RUNNABLE){
-			env_run(&envs[nextid]);
-			return;
+	if (cur_env) {
+		for (int i = ENVX(cur_env->env_id) + 1; i < NENV; i++) {
+			if (envs[i].env_status == ENV_RUNNABLE) {
+				env_run(&envs[i]);
+			}
 		}
-	}
-	//若循环后没有遇到可执行环境
-	if(envs[startid].env_status == ENV_RUNNING && envs[startid].env_cpunum == cpunum()){
-		env_run(&envs[startid]);
+		for (int i = 0; i < ENVX(cur_env->env_id); i++) {
+			if (envs[i].env_status == ENV_RUNNABLE) {
+				env_run(&envs[i]);
+			}
+		}
+		if (cur_env->env_status == ENV_RUNNING) {
+			env_run(cur_env);
+		}
+	} else {
+		for (int i = 0; i < NENV; i++) {
+			if (envs[i].env_status == ENV_RUNNABLE) {
+				env_run(&envs[i]);
+			}
+		}
 	}
 
 	// sched_halt never returns

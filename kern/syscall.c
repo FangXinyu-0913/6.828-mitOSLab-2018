@@ -199,28 +199,28 @@ sys_env_set_pgfault_upcall(envid_t envid, void *func)
 static int  
 sys_page_alloc(envid_t envid, void *va, int perm)  
 {  
-    // LAB 4: Your code here.  
-    struct Env* new_env;  
-    int result;  
-    struct PageInfo *p = NULL;  
-      
-    if ((uintptr_t)va >= UTOP || (uintptr_t)va % PGSIZE ) {  
-        return -E_INVAL;  
-    }  
-    if (perm & ~PTE_SYSCALL) {  
-        return -E_INVAL;  
-    }  
-    if ((result = envid2env(envid, &new_env, 1)) < 0) {  
-        return result;  
-    }  
-    if (!(p = page_alloc(ALLOC_ZERO))) {  
-        return -E_NO_MEM;  
-    }  
-    if ((result = page_insert(new_env->env_pgdir, p, va, perm | PTE_U)) < 0){  
-        page_free(p);  
-        return result;  
-    }  
-    return 0;  
+    // LAB 4: Your code here.
+	struct Env* new_env;
+	int result;
+	struct PageInfo *p = NULL;
+	
+	if ((uintptr_t)va >= UTOP || (uintptr_t)va % PGSIZE ) {
+		return -E_INVAL;
+	}
+	if (perm & ~PTE_SYSCALL) {
+		return -E_INVAL;
+	}
+	if ((result = envid2env(envid, &new_env, 1)) < 0) {
+		return result;
+	}
+	if (!(p = page_alloc(ALLOC_ZERO))) {
+		return -E_NO_MEM;
+	}
+	if ((result = page_insert(new_env->env_pgdir, p, va, perm | PTE_U)) < 0){
+		page_free(p);
+		return result;
+	}
+	return 0;
 }  
 
 // Map the page of memory at 'srcva' in srcenvid's address space
@@ -250,7 +250,6 @@ sys_page_map(envid_t srcenvid, void *srcva,
 	//   Use the third argument to page_lookup() to
 	//   check the current permissions on the page.
 
-	// LAB 4: Your code here.
 	struct Env* src_env;
 	struct Env* dst_env;
 	int result;
@@ -389,21 +388,36 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	//panic("syscall not implemented");
 
 	switch (syscallno) {
-		case (SYS_cputs):
-            sys_cputs((const char *)a1, a2);
-            return 0;
-        case (SYS_cgetc):
-            return sys_cgetc();
-        case (SYS_getenvid):
-            return sys_getenvid();
-        case (SYS_env_destroy):
-            return sys_env_destroy(a1);
-		case (SYS_yield): 
-        	sys_yield();
-			return 0;
-			// break;
-		default:
-			return -E_INVAL;
+	case SYS_cputs:
+		sys_cputs((const char*)a1, (size_t)a2);
+		return 0;
+	case SYS_cgetc:
+		return sys_cgetc();
+	case SYS_getenvid:
+		return sys_getenvid();
+	case SYS_env_destroy:
+		return sys_env_destroy((envid_t)a1);
+	case SYS_yield:
+		sys_yield();
+		return 0;
+	case SYS_exofork:
+		return sys_exofork();
+	case SYS_env_set_status:
+		return sys_env_set_status((envid_t)a1, (int)a2);
+	case SYS_page_alloc:
+		return sys_page_alloc((envid_t)a1, (void*)a2, (int)a3);
+	case SYS_page_map:
+		return sys_page_map((envid_t)a1, (void*)a2, (envid_t)a3, (void*)a4, (int)a5);
+	case SYS_page_unmap:
+		return sys_page_unmap((envid_t)a1, (void*)a2);
+	case SYS_env_set_pgfault_upcall:
+		return sys_env_set_pgfault_upcall((envid_t)a1, (void*)a2);
+	case SYS_ipc_try_send:
+		return sys_ipc_try_send((envid_t)a1, a2, (void*)a3, (unsigned int)a4);
+	case SYS_ipc_recv:
+		return sys_ipc_recv((void*)a1);
+	default:
+		return -E_INVAL;
 	}
 }
 
