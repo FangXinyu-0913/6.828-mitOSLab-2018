@@ -207,10 +207,10 @@ read(int fdnum, void *buf, size_t n)
 	struct Dev *dev;
 	struct Fd *fd;
 
-	if ((r = fd_lookup(fdnum, &fd)) < 0
+	if ((r = fd_lookup(fdnum, &fd)) < 0//查找对应文件描述符和设备id是否存在
 	    || (r = dev_lookup(fd->fd_dev_id, &dev)) < 0)
 		return r;
-	if ((fd->fd_omode & O_ACCMODE) == O_WRONLY) {
+	if ((fd->fd_omode & O_ACCMODE) == O_WRONLY) {//打开文件的模式是只写,那么不能进行读操作
 		cprintf("[%08x] read %d -- bad mode\n", thisenv->env_id, fdnum);
 		return -E_INVAL;
 	}

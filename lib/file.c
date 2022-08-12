@@ -17,15 +17,15 @@ fsipc(unsigned type, void *dstva)
 {
 	static envid_t fsenv;
 	if (fsenv == 0)
-		fsenv = ipc_find_env(ENV_TYPE_FS);
+		fsenv = ipc_find_env(ENV_TYPE_FS);//查找文件系统进程id
 
 	static_assert(sizeof(fsipcbuf) == PGSIZE);
 
 	if (debug)
 		cprintf("[%08x] fsipc %d %08x\n", thisenv->env_id, type, *(uint32_t *)&fsipcbuf);
 
-	ipc_send(fsenv, type, &fsipcbuf, PTE_P | PTE_W | PTE_U);
-	return ipc_recv(NULL, dstva, NULL);
+	ipc_send(fsenv, type, &fsipcbuf, PTE_P | PTE_W | PTE_U);////向文件系统进程发送文件操作请求
+	return ipc_recv(NULL, dstva, NULL);//等待接收数据
 }
 
 static int devfile_flush(struct Fd *fd);
@@ -116,14 +116,14 @@ devfile_read(struct Fd *fd, void *buf, size_t n)
 	// bytes read will be written back to fsipcbuf by the file
 	// system server.
 	int r;
-
-	fsipcbuf.read.req_fileid = fd->fd_file.id;
-	fsipcbuf.read.req_n = n;
+	//打包请求相关数据到fsipcbuf
+	fsipcbuf.read.req_fileid = fd->fd_file.id;// //设置req_fileid为fd在打开文件表中的索引
+	fsipcbuf.read.req_n = n;//要读取的字节数
 	if ((r = fsipc(FSREQ_READ, NULL)) < 0)
 		return r;
 	assert(r <= n);
 	assert(r <= PGSIZE);
-	memmove(buf, fsipcbuf.readRet.ret_buf, r);
+	memmove(buf, fsipcbuf.readRet.ret_buf, r);//将返回的数据移到指定缓冲区中
 	return r;
 }
 
@@ -141,7 +141,15 @@ devfile_write(struct Fd *fd, const void *buf, size_t n)
 	// remember that write is always allowed to write *fewer*
 	// bytes than requested.
 	// LAB 5: Your code here
-	panic("devfile_write not implemented");
+	int r;
+	fsipcbuf.write.req_fileid = fd->fd_file.id;//设置req_fileid为fd在打开文件表中的索引
+	fsipcbuf.write.req_n = n; //写入字节数不能超过req_buf
+	memmove(fsipcbuf.write.req_buf, buf, n);
+	if((r = fsipc(FSREQ_WRITE, NULL)) < 0)
+		return r;
+	assert(r <= n);
+	assert(r <= PGSIZE);
+	return r;
 }
 
 static int

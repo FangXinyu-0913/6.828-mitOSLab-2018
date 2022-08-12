@@ -62,7 +62,14 @@ alloc_block(void)
 	// super->s_nblocks blocks in the disk altogether.
 
 	// LAB 5: Your code here.
-	panic("alloc_block not implemented");
+	int blockno;
+	for(blockno = 1; blockno < super->s_nblocks; blockno++){
+		if(block_is_free(blockno)){//对所有的block进行一个遍历，如果发现free的就进行分配
+			bitmap[blockno/32] &= ~(1<<(blockno%32));//在bitmap中标志为0，之后立即利用flush_block()将将修改写回磁盘，并且返回blockno
+			flush_block(&bitmap[blockno/32]);
+			return blockno;
+		}
+	}
 	return -E_NO_DISK;
 }
 
@@ -132,12 +139,31 @@ fs_init(void)
 // Analogy: This is like pgdir_walk for files.
 // Hint: Don't forget to clear any block you allocate.
 static int
-file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool alloc)
+file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool alloc)// ppdiskbno 块指针
 {
-       // LAB 5: Your code here.
-       panic("file_block_walk not implemented");
-}
+    // LAB 5: Your code here.
+	int r;
 
+	if(filebno >= NDIRECT + NINDIRECT)
+		return -E_INVAL;
+	
+	if(filebno < NDIRECT){
+		*ppdiskbno = (f->f_direct) + filebno;
+	}
+	else{
+		if(alloc && (f->f_indirect == 0)){//文件无间接索引块且alloc为1则分配一个间接索引块
+			if((r = alloc_block()) < 0)//硬盘中无可用块
+				return r;
+			memset(diskaddr(r), 0, BLKSIZE);//分配一个空闲块后,应将其读入缓存并将空闲块中数据清空再写回硬盘。
+			f->f_indirect = r;
+		}
+		else if(f->f_indirect == 0){
+			return -E_NOT_FOUND;
+		}
+		*ppdiskbno = ((uint32_t *)diskaddr(f->f_indirect)) + filebno - NDIRECT;//获得逻辑块号对应的物理块号所在的地址
+	}
+	return 0;
+}
 // Set *blk to the address in memory where the filebno'th
 // block of file 'f' would be mapped.
 //
@@ -150,7 +176,18 @@ int
 file_get_block(struct File *f, uint32_t filebno, char **blk)
 {
        // LAB 5: Your code here.
-       panic("file_get_block not implemented");
+	uint32_t * pdiskbno;
+	int r;
+	if((r = file_block_walk(f, filebno, &pdiskbno, true)) < 0)
+		return r;
+	if(*pdiskbno == 0){//进行分配
+		if((r = alloc_block()) < 0)
+			return r;
+		*pdiskbno = r;
+	}
+	*blk = (char *)diskaddr(*pdiskbno);//利用diskaddr()转换成地址 最终指向块
+	flush_block(*blk);
+	return 0;
 }
 
 // Try to find a file named "name" in dir.  If so, set *file to it.

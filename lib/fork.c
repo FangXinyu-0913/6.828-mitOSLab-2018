@@ -63,21 +63,34 @@ pgfault(struct UTrapframe *utf)
 // It is also OK to panic on error.
 //
 static int
-duppage(envid_t envid, unsigned pn)
+duppage(envid_t envid, unsigned pn) //复制映射关系
 {
-	int r;
-	int err, perm = PTE_U;
-	uintptr_t va = pn*PGSIZE;
 	// LAB 4: Your code here.
-	if ((uvpt[pn] & PTE_W) || (uvpt[pn] & PTE_COW))
-		perm |= PTE_COW;
-
-	if ((err=sys_page_map(0, (void*)va, envid, (void*)va, perm)) < 0)
-		panic("duppage error: %e", err);
-
-	if ((err=sys_page_map(0, (void*)va, 0, (void*)va, perm)) < 0)
-		panic("duppage error: %e", err);
-	// panic("duppage not implemented");
+	//panic("duppage not implemented");
+	int err;
+	int curEnvId = sys_getenvid();
+	//如果该页是可写页或COW页且该页不共享
+	if(uvpt[pn]&(PTE_W|PTE_COW) && !(uvpt[pn]&PTE_SHARE)) //lab5练习8修改处
+	{	
+		//复制映射关系,并标记子进程中该页为COW页
+		err = sys_page_map(curEnvId,(void*)(pn*PGSIZE),envid,(void*)(pn*PGSIZE),PTE_P|PTE_U|PTE_COW);
+		if(err<0)
+		//panic("duppage:sys_page_map failed when copy mappings from W/COW page - %e\n", err);
+			return err;
+		//标记父进程为COW页
+		err = sys_page_map(curEnvId,(void*)(pn*PGSIZE),curEnvId,(void*)(pn*PGSIZE),PTE_P|PTE_U|PTE_COW);
+		if(err <0)
+			return err;
+	}
+	else //该页是只读页或共享页
+	{	
+		int perm = uvpt[pn]&PTE_SHARE ? uvpt[pn]&PTE_SYSCALL : PTE_P|PTE_U; //lab5练习8修改处
+		err = sys_page_map(curEnvId,(void*)(pn*PGSIZE),envid,(void*)(pn*PGSIZE),perm);
+		//err = sys_page_map(curEnvId,(void*)(pn*PGSIZE),envid,(void*)(pn*PGSIZE),(uvpt[n]<<20)>>20);
+		if(err <0)
+		//panic("duppage:sys_page_map failed when copy mappings from R-ONLY page - %e\n", err);
+			return err;
+	}	
 	return 0;
 }
 
