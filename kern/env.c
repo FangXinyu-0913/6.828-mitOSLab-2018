@@ -119,6 +119,12 @@ env_init(void)
 {
 	// Set up envs array
 	// LAB 3: Your code here.
+    env_free_list = NULL;
+    for (int i = NENV - 1; i >= 0; i--) {   //前插法构建链表
+        envs[i].env_id = 0;
+        envs[i].env_link = env_free_list;
+        env_free_list = &envs[i];
+    }
 
 	// Per-CPU part of the initialization
 	env_init_percpu();
@@ -182,6 +188,9 @@ env_setup_vm(struct Env *e)
 	//    - The functions in kern/pmap.h are handy.
 
 	// LAB 3: Your code here.
+    p->pp_ref++;
+    e->env_pgdir = (pde_t *) page2kva(p);  //刚分配的物理页作为页目录使用
+    memcpy(e->env_pgdir, kern_pgdir, PGSIZE); //继承内核页目录 每个环境（进程）的内核部分映射应该是相同的，所以直接将内核的页表复制过来即可
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -247,6 +256,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 
 	// Enable interrupts while in user mode.
 	// LAB 4: Your code here.
+	e->env_tf.tf_eflags = e->env_tf.tf_eflags | FL_IF;
 
 	// Clear the page fault handler until user installs one.
 	e->env_pgfault_upcall = 0;
@@ -258,7 +268,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	env_free_list = e->env_link;
 	*newenv_store = e;
 
-	// cprintf("[%08x] new env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
+	cprintf("[%08x] new env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
 	return 0;
 }
 
@@ -279,6 +289,18 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+	void *start=ROUNDDOWN(va,PGSIZE),*end=ROUNDUP(va+len,PGSIZE);
+	for (void * addr=start;addr<end;addr+=PGSIZE){
+		struct PageInfo* p=page_alloc(0);
+		if(p==NULL){
+			panic("region alloc failed: No more page to be allocated.\n");
+		}
+		else {
+			if(page_insert(e->env_pgdir,p,addr, PTE_U | PTE_W)==-E_NO_MEM){
+				panic("region alloc failed: page table couldn't be allocated.\n");
+			}
+		}
+	}
 }
 
 //
@@ -336,10 +358,34 @@ load_icode(struct Env *e, uint8_t *binary)
 
 	// LAB 3: Your code here.
 
+    struct Elf *ELFHDR = (struct Elf *) binary;
+    struct Proghdr *ph;             //Program Header
+    int ph_num;                     //Program entry number
+    if (ELFHDR->e_magic != ELF_MAGIC) {
+        panic("binary is not ELF format\n");
+    }
+    ph = (struct Proghdr *) ((uint8_t *) ELFHDR + ELFHDR->e_phoff);
+    ph_num = ELFHDR->e_phnum;
+
+    lcr3(PADDR(e->env_pgdir));          //这步别忘了，虽然到目前位置e->env_pgdir和kern_pgdir除了PDX(UVPT)这一项不同，其他都一样。
+                                        //但是后面会给e->env_pgdir增加映射关系
+
+    for (int i = 0; i < ph_num; i++) {
+        if (ph[i].p_type == ELF_PROG_LOAD) {        //只加载LOAD类型的Segment
+            region_alloc(e, (void *)ph[i].p_va, ph[i].p_memsz);
+            memset((void *)ph[i].p_va, 0, ph[i].p_memsz);       //因为这里需要访问刚分配的内存，所以之前需要切换页目录
+            memcpy((void *)ph[i].p_va, binary + ph[i].p_offset, ph[i].p_filesz); //应该有如下关系：ph->p_filesz <= ph->p_memsz。搜索BSS段
+        }
+    }
+
+    lcr3(PADDR(kern_pgdir));
+    e->env_tf.tf_eip = ELFHDR->e_entry;
+
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
-
 	// LAB 3: Your code here.
+	region_alloc(e,(void*)(USTACKTOP - PGSIZE),PGSIZE);
+
 }
 
 //
@@ -353,9 +399,21 @@ void
 env_create(uint8_t *binary, enum EnvType type)
 {
 	// LAB 3: Your code here.
-
+	struct Env * e;
+	int r=env_alloc(&e,0);
+	if(r!=0){
+		cprintf("%e\n",r);
+		panic("env_create:error");
+	}
+	load_icode(e,binary);
+	e->env_type=type;
 	// If this is the file server (type == ENV_TYPE_FS) give it I/O privileges.
 	// LAB 5: Your code here.
+	if(ENV_TYPE_FS == e->env_type)
+	{	
+		//设置文件系统进程的IO特权。
+		e->env_tf.tf_eflags = e->env_tf.tf_eflags | FL_IOPL_3;
+	}
 }
 
 //
@@ -375,7 +433,7 @@ env_free(struct Env *e)
 		lcr3(PADDR(kern_pgdir));
 
 	// Note the environment's demise.
-	// cprintf("[%08x] free env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
+	cprintf("[%08x] free env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
 
 	// Flush all mapped pages in the user portion of the address space
 	static_assert(UTOP % PTSIZE == 0);
@@ -487,6 +545,18 @@ env_run(struct Env *e)
 
 	// LAB 3: Your code here.
 
-	panic("env_run not yet implemented");
-}
+	if (curenv && curenv->env_status == ENV_RUNNING) {
+		curenv->env_status = ENV_RUNNABLE;
+	}
+	curenv = e;
+	curenv->env_status = ENV_RUNNING;
+	curenv->env_runs++;
+	lcr3(PADDR(curenv->env_pgdir));
 
+	// cprintf("start env_pop and running...\n");
+	unlock_kernel();
+	//cprintf("id %08x env_pop_tf eip %08x eax %d\n", curenv->env_id, curenv->env_tf.tf_eip, curenv->env_tf.tf_regs.reg_eax);
+	env_pop_tf(&curenv->env_tf);
+
+	//panic("env_run should not reach here");
+}

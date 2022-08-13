@@ -214,7 +214,15 @@ serve_read(envid_t envid, union Fsipc *ipc)
 		cprintf("serve_read %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
 
 	// Lab 5: Your code here:
-	return 0;
+	// Lab 5: Your code here:
+	struct OpenFile *o;
+	int r;
+	if((r = openfile_lookup(envid, req->req_fileid, &o)) < 0) //查找请求读取的文件对象的打开文件表项是否存在
+		return r;
+	if((r = file_read(o->o_file,ret->ret_buf, req->req_n, o->o_fd->fd_offset))<0) //读取文件数据
+		return r;
+	o->o_fd->fd_offset += r; //更新文件当前偏移量
+	return r;
 }
 
 
@@ -229,7 +237,14 @@ serve_write(envid_t envid, struct Fsreq_write *req)
 		cprintf("serve_write %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
 
 	// LAB 5: Your code here.
-	panic("serve_write not implemented");
+	struct OpenFile *o;
+	int r;
+	if((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+		return r;
+	if((r = file_write(o->o_file, req->req_buf, req->req_n, o->o_fd->fd_offset)) < 0)
+		return r;
+	o->o_fd->fd_offset += r;
+	return r;
 }
 
 // Stat ipc->stat.req_fileid.  Return the file's struct Stat to the

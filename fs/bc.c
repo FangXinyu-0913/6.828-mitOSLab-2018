@@ -48,6 +48,11 @@ bc_pgfault(struct UTrapframe *utf)
 	// the disk.
 	//
 	// LAB 5: you code here:
+	addr = ROUNDDOWN(addr, BLKSIZE);//将addr进行对齐
+	if((r = sys_page_alloc(0, addr, PTE_U | PTE_P | PTE_W)) < 0)//利用sys_page_alloc()系统调用来进行页面分配
+		panic("in bc_pgfault, sys_page_alloc: %e", r);
+	if((r = ide_read(blockno << 3, addr, 8)) < 0)//利用ide_read()进行内容的读取(以sector为单位进行读取的，是512个byte，同block的大小是8倍的关系)
+		panic("in_bc_pgfault, ide_read: %e", r);
 
 	// Clear the dirty bit for the disk block page since we just read the
 	// block from disk
@@ -77,7 +82,15 @@ flush_block(void *addr)
 		panic("flush_block of bad va %08x", addr);
 
 	// LAB 5: Your code here.
-	panic("flush_block not implemented");
+	int r;
+	addr = ROUNDDOWN(addr, BLKSIZE);//当可写页面被修改的时候，需要将Block写回磁盘
+	if(va_is_mapped(addr) && va_is_dirty(addr)){//当前所对应的block是被映射了的，并且是dirty的
+		if((r = ide_write(blockno << 3, addr, 8)) < 0)
+			panic("in flush_block, ide_write: %e", r);
+		if((r = sys_page_map(0, addr, 0, addr, uvpt[PGNUM(addr)] & PTE_SYSCALL)) < 0)
+			panic("in flush block, sys_page_map: %e", r);//重新进行一次映射来消除掉dirty位。这样可以避免多次进行flush，访问磁盘占用大量的时间
+	}
+	// panic("flush_block not implemented");
 }
 
 // Test that the block cache works, by smashing the superblock and
