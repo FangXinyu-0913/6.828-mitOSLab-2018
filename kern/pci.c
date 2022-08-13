@@ -31,6 +31,7 @@ struct pci_driver pci_attach_class[] = {
 // pci_attach_vendor matches the vendor ID and device ID of a PCI device. key1
 // and key2 should be the vendor ID and device ID respectively
 struct pci_driver pci_attach_vendor[] = {
+	{PCI_E1000_VENDOR_ID,PCI_E1000_DEVICE_ID,&PCI_E1000_Driver},
 	{ 0, 0, 0 },
 };
 
@@ -121,7 +122,7 @@ pci_print_func(struct pci_func *f)
 		PCI_CLASS(f->dev_class), PCI_SUBCLASS(f->dev_class), class,
 		f->irq_line);
 }
-
+//扫描总线，查取上面挂取的所有设备，并对这些设备进行初始化
 static int
 pci_scan_bus(struct pci_bus *bus)
 {
@@ -131,18 +132,18 @@ pci_scan_bus(struct pci_bus *bus)
 	df.bus = bus;
 
 	for (df.dev = 0; df.dev < 32; df.dev++) {
-		uint32_t bhlc = pci_conf_read(&df, PCI_BHLC_REG);
-		if (PCI_HDRTYPE_TYPE(bhlc) > 1)	    // Unsupported or no device
+		uint32_t bhlc = pci_conf_read(&df, PCI_BHLC_REG);//从设备对应首个功能的配置偏移PCI_BHLC_REG处读取设备相关信息
+		if (PCI_HDRTYPE_TYPE(bhlc) > 1)	    // Unsupported or no device//不支持该设备或无设备
 			continue;
 
 		totaldev++;
 
-		struct pci_func f = df;
+		struct pci_func f = df;//设备存在，配置其相关功能
 		for (f.func = 0; f.func < (PCI_HDRTYPE_MULTIFN(bhlc) ? 8 : 1);
 		     f.func++) {
 			struct pci_func af = f;
 
-			af.dev_id = pci_conf_read(&f, PCI_ID_REG);
+			af.dev_id = pci_conf_read(&f, PCI_ID_REG);//设备配置空间头四个字节包含设备id与供应商id
 			if (PCI_VENDOR(af.dev_id) == 0xffff)
 				continue;
 
@@ -152,7 +153,7 @@ pci_scan_bus(struct pci_bus *bus)
 			af.dev_class = pci_conf_read(&af, PCI_CLASS_REG);
 			if (pci_show_devs)
 				pci_print_func(&af);
-			pci_attach(&af);
+			pci_attach(&af);//调用驱动程序列表中的驱动程序初始化该设备及其功能
 		}
 	}
 
